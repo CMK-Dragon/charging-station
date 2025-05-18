@@ -125,11 +125,13 @@
 
       const chargingInfo = analyzeCharging(currentData);
       const chargingLine = labels.map(t => {
-        if (chargingInfo.periods.some(p => t >= p.start && t <= p.end)) {
-          return data[t] ? data[t].power || 0 : 0;
-        }
-        return null;
-      });
+  if (chargingInfo.periods.some(p => t >= p.start && t <= p.end)) {
+    const power = data[t]?.power || 0;
+    return power * 0.9;  // ลดลง 10% เพื่อดึงเส้นลงล่าง
+  }
+  return null;
+});
+
       chart.data.datasets[1].data = chargingLine;
       chart.update();
 

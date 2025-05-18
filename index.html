@@ -1,135 +1,154 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="th">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Battery Status</title>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            padding: 20px;
-            background-color: #f4f4f4;
-        }
-        .battery-container {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-top: 50px;
-        }
-        .battery {
-            width: 250px;
-            height: 50px;
-            border: 5px solid #000;
-            border-radius: 10px;
-            display: flex;
-            overflow: hidden;
-            position: relative;
-            background: #fff;
-        }
-        .battery-level {
-            height: 100%;
-            transition: width 0.5s ease-in-out, background-color 0.5s ease-in-out;
-        }
-        .battery-head {
-            width: 10px;
-            height: 25px;
-            background: #000;
-            position: absolute;
-            right: -10px;
-            top: 50%;
-            transform: translateY(-50%);
-            border-radius: 3px;
-        }
-        .battery-label {
-            font-size: 18px;
-            margin-top: 20px;
-        }
-        .status-message {
-            font-size: 20px;
-            font-weight: bold;
-            margin-top: 20px;
-            color: #333;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Solar Power Monitoring - แบบ B</title>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f4f4f4; }
+    h1 { margin-bottom: 20px; }
+    .chart-container { max-width: 700px; margin: auto; }
+    #summary { margin-top: 20px; font-size: 18px; font-weight: bold; }
+  </style>
 </head>
 <body>
-    <h1>Battery Status</h1>
-    <div class="battery-container">
-        <div class="battery">
-            <div class="battery-level" id="batteryLevel" style="width: 0%; background-color: red;"></div>
-            <div class="battery-head"></div>
-        </div>
-    </div>
-    <p class="battery-label" id="batteryText">Battery: N/A</p>
-    <p class="status-message" id="statusMessage">กำลังเชื่อมต่อ...</p>
 
-    <script>
-        const firebaseConfig = {
-            apiKey: "AIzaSyDISVagA6yFS1qDTvb5iYP3ULSeYn1LEgM",
-            authDomain: "charging-station-2011e.firebaseapp.com",
-            databaseURL: "https://charging-station-2011e-default-rtdb.asia-southeast1.firebasedatabase.app/",
-            projectId: "charging-station-2011e",
-            storageBucket: "charging-station-2011e.firebasestorage.app",
-            messagingSenderId: "371656140745",
-            appId: "1:371656140745:web:0c242ecb9895fbe2ff2a18"
-        };
-    
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-        const voltageRef = database.ref("/voltage");
-    
-        let lastVoltage = null;
-        let timeoutID = null;
-    
-        function updateBattery(voltage) {
-            const batteryLevel = document.getElementById("batteryLevel");
-            const batteryText = document.getElementById("batteryText");
-            const statusMessage = document.getElementById("statusMessage");
-    
-            console.log("📡 Received Voltage from Firebase:", voltage);
-    
-            if (voltage !== null && voltage !== undefined) {
-                lastVoltage = voltage; // บันทึกค่าล่าสุด
-    
-                let percentage = ((voltage - 10.5) / (12.6 - 10.5)) * 100;
-                percentage = Math.min(Math.max(percentage, 0), 100);
-    
-                let bars = Math.ceil(percentage / 20);
-                let colors = ["red", "orange", "yellow", "lightgreen", "green"];
-                bars = Math.max(1, bars);
-    
-                batteryLevel.style.width = (bars * 20) + "%";
-                batteryLevel.style.backgroundColor = colors[bars - 1];
-                batteryText.innerText = `Battery: ${Math.round(percentage)}% (${bars} bars)`;
-                statusMessage.innerText = "กำลังชาร์จ...";
-    
-                // เคลียร์ timeout ที่อาจกำลังรอให้เปลี่ยนสถานะเป็น "สถานีชาร์จว่าง"
-                if (timeoutID) clearTimeout(timeoutID);
-    
-                // ตั้งเวลารอ 10 วินาที ถ้าไม่มีค่าใหม่มา → แสดง "สถานีชาร์จว่าง"
-                timeoutID = setTimeout(() => {
-                    console.log("⏳ No new data received, setting status to empty...");
-                    batteryLevel.style.width = "0%";
-                    batteryLevel.style.backgroundColor = "red";
-                    batteryText.innerText = "Battery: N/A";
-                    statusMessage.innerText = "สถานีชาร์จว่าง";
-                }, 10000); // 10 วินาที
-            } else {
-                console.log("⚠️ Firebase cleared data, keeping last value...");
-            }
+  <h1>Solar Power Monitoring (แบบ B) - ดูย้อนหลัง</h1>
+  <div class="chart-container">
+    <canvas id="powerChart"></canvas>
+  </div>
+
+  <div id="summary">กำลังโหลดข้อมูล...</div>
+
+  <script>
+    // Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyDISVagA6yFS1qDTvb5iYP3ULSeYn1LEgM",
+      authDomain: "charging-station-2011e.firebaseapp.com",
+      databaseURL: "https://charging-station-2011e-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "charging-station-2011e",
+      storageBucket: "charging-station-2011e.appspot.com",
+      messagingSenderId: "371656140745",
+      appId: "1:371656140745:web:0c242ecb9895fbe2ff2a18",
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const labels = ["06:00","07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00"];
+    const today = new Date();
+    const day = today.toISOString().slice(0, 10);  // format เป็น "YYYY-MM-DD"
+
+    const ctx = document.getElementById("powerChart").getContext("2d");
+    const chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: "กำลังไฟฟ้าที่แผง solar ผลิตได้ (W)",
+            data: Array(labels.length).fill(0),
+            borderColor: "blue",
+            backgroundColor: "rgba(0, 0, 255, 0.2)",
+            fill: true,
+            tension: 0.4
+          },
+          {
+            label: "ช่วงเวลาที่ชาร์จแบตเตอรี่",
+            data: Array(labels.length).fill(null),
+            borderColor: "orange",
+            borderWidth: 3,
+            fill: false,
+            tension: 0.4,
+            spanGaps: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: 'W/m2' }
+          },
+          x: {
+            title: { display: true, text: 'เวลา' }
+          }
         }
-    
-        voltageRef.on("value", (snapshot) => {
-            const voltage = snapshot.val();
-            updateBattery(voltage);
-        }, (error) => {
-            console.error("❌ Firebase Connection Error:", error);
-            document.getElementById("statusMessage").innerText = "เชื่อมต่อ Firebase ไม่สำเร็จ";
-        });
-    </script>
-       
+      }
+    });
+
+    const powerRef = db.ref(`/solar_power/${day}`);
+
+    function analyzeCharging(currentData) {
+      let chargingPeriods = [];
+      let periodStart = null;
+      let totalMinutes = 0;
+
+      for (let i = 0; i < labels.length; i++) {
+        const time = labels[i];
+        const entry = currentData[time];
+        const current = entry && entry.current ? entry.current : 0;
+
+        if (current > 0) {
+          if (periodStart === null) periodStart = time;
+          totalMinutes += 60; // สมมุติข้อมูลรายชั่วโมง
+        } else {
+          if (periodStart !== null) {
+            chargingPeriods.push({ start: periodStart, end: labels[i - 1] });
+            periodStart = null;
+          }
+        }
+      }
+
+      if (periodStart !== null) {
+        chargingPeriods.push({ start: periodStart, end: labels[labels.length - 1] });
+      }
+
+      return { periods: chargingPeriods, totalMinutes };
+    }
+
+    powerRef.once("value").then(snapshot => {
+      const data = snapshot.val() || {};
+      const powerData = [];
+      const currentData = {};
+
+      labels.forEach(time => {
+        powerData.push(data[time] ? data[time].power || 0 : 0);
+        currentData[time] = data[time] || { current: 0 };
+      });
+
+      chart.data.datasets[0].data = powerData;
+
+      const chargingInfo = analyzeCharging(currentData);
+      const chargingLine = labels.map(t => {
+        if (chargingInfo.periods.some(p => t >= p.start && t <= p.end)) {
+          return data[t] ? data[t].power || 0 : 0;
+        }
+        return null;
+      });
+      chart.data.datasets[1].data = chargingLine;
+      chart.update();
+
+      // แสดงสรุปแบบมีเงื่อนไข
+      if (chargingInfo.periods.length === 0) {
+        document.getElementById("summary").innerText =
+          "วันนี้ยังไม่มีการชาร์จแบตเตอรี่";
+      } else {
+        const totalHours = (chargingInfo.totalMinutes / 60).toFixed(2);
+        const periodsText = chargingInfo.periods.map(p => `${p.start} - ${p.end}`).join(", ");
+        document.getElementById("summary").innerHTML =
+          `จำนวนรอบการชาร์จ: ${chargingInfo.periods.length} รอบ<br>` +
+          `เวลาชาร์จรวม: ${totalHours} ชั่วโมง<br>` +
+          `ช่วงเวลาชาร์จ: ${periodsText}`;
+      }
+    }).catch(e => {
+      document.getElementById("summary").innerText = "โหลดข้อมูลล้มเหลว: " + e.message;
+    });
+  </script>
 </body>
 </html>
+

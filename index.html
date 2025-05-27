@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Solar Power Monitoring </title>
+  <title>Solar Power Monitoring</title>
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -11,22 +11,21 @@
     body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f4f4f4; }
     h1 { margin-bottom: 20px; }
     .chart-container { max-width: 700px; margin: auto; }
-    #summary { margin-top: 20px; font-size: 18px; font-weight: bold; }
+    #summary, #loading { margin-top: 20px; font-size: 18px; font-weight: bold; }
   </style>
 </head>
 <body>
 
-  <h1>Solar Power Monitoring </h1>
+  <h1>Solar Power Monitoring</h1>
   <div class="chart-container">
     <canvas id="powerChart"></canvas>
   </div>
 
-  <div id="summary">กำลังโหลดข้อมูล...</div>
+  <div id="loading">⏳ กำลังโหลดข้อมูล...</div>
+  <div id="summary" style="display: none;"></div>
 
   <script>
   window.onload = () => {
-    console.log("✅ หน้าเว็บโหลดแล้ว");
-
     const firebaseConfig = {
       apiKey: "AIzaSyDISVagA6yFS1qDTvb5iYP3ULSeYn1LEgM",
       authDomain: "charging-station-2011e.firebaseapp.com",
@@ -40,9 +39,16 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    const labels = ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
-    const today = new Date();
-    const day = today.toISOString().slice(0, 10); // ✅ วันที่วันนี้ เช่น "2025-05-27"
+    // สร้าง labels อัตโนมัติ 06:00 - 18:00
+    const labels = [];
+    for (let h = 6; h <= 18; h++) {
+      labels.push(`${h.toString().padStart(2, '0')}:00`);
+    }
+
+    // เวลาวันนี้ในเขตเวลาไทย
+    const now = new Date();
+    now.setHours(now.getHours() + 7);
+    const day = now.toISOString().slice(0, 10);
 
     const ctx = document.getElementById("powerChart").getContext("2d");
     const chart = new Chart(ctx, {
@@ -84,7 +90,7 @@
     });
 
     const powerRef = db.ref(`/solar_power/${day}`);
-    console.log("📦 กำลังโหลดจาก Firebase path:", `/solar_power/${day}`);
+    const batteryRef = db.ref(`/battery_status/${day}`);
 
     function analyzeCharging(currentData) {
       let chargingPeriods = [];
@@ -94,7 +100,7 @@
       for (let i = 0; i < labels.length; i++) {
         const time = labels[i];
         const entry = currentData[time];
-        const current = entry && entry.current ? entry.current : 0;
+        const current = entry && entry.battery_current ? entry.battery_current : 0;
 
         if (current > 0) {
           if (periodStart === null) periodStart = time;
@@ -114,16 +120,16 @@
       return { periods: chargingPeriods, totalMinutes };
     }
 
-    powerRef.once("value").then(snapshot => {
-      const data = snapshot.val() || {};
-      console.log("📥 ข้อมูลที่โหลดได้:", data);
+    function updateDisplay(powerDataRaw, battDataRaw) {
+      const data = powerDataRaw || {};
+      const battData = battDataRaw || {};
 
       const powerData = [];
       const currentData = {};
 
       labels.forEach(time => {
-        powerData.push(data[time] ? data[time].power || 0 : 0);
-        currentData[time] = data[time] || { current: 0 };
+        powerData.push(data[time]?.panel_power || 0);
+        currentData[time] = data[time] || { battery_current: 0 };
       });
 
       chart.data.datasets[0].data = powerData;
@@ -131,29 +137,59 @@
       const chargingInfo = analyzeCharging(currentData);
       const chargingLine = labels.map(t => {
         if (chargingInfo.periods.some(p => t >= p.start && t <= p.end)) {
-          const power = data[t]?.power || 0;
+          const power = data[t]?.panel_power || 0;
           return power * 0.9;
         }
         return null;
       });
-
       chart.data.datasets[1].data = chargingLine;
       chart.update();
 
-      if (chargingInfo.periods.length === 0) {
-        document.getElementById("summary").innerText = "วันนี้ยังไม่มีการชาร์จแบตเตอรี่";
-      } else {
+      // ซ่อนข้อความโหลด
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("summary").style.display = "block";
+
+      // แสดงผลสรุป
+      const batteryStatus = battData.status || "-";
+      const estimated = battData.estimatedHours || 0;
+
+      if (batteryStatus === "Charging") {
+        document.getElementById("summary").innerHTML =
+          `🔋 กำลังชาร์จอยู่ คาดว่าเต็มใน ~ ${estimated.toFixed(1)} ชั่วโมง`;
+      } else if (chargingInfo.periods.length > 0) {
         const totalHours = (chargingInfo.totalMinutes / 60).toFixed(2);
         const periodsText = chargingInfo.periods.map(p => `${p.start} - ${p.end}`).join(", ");
         document.getElementById("summary").innerHTML =
-          `จำนวนรอบการชาร์จ: ${chargingInfo.periods.length} รอบ<br>` +
+          `📊 วันนี้มีการชาร์จ ${chargingInfo.periods.length} รอบ<br>` +
           `เวลาชาร์จรวม: ${totalHours} ชั่วโมง<br>` +
-          `ช่วงเวลาชาร์จ: ${periodsText}`;
+          `ช่วงเวลา: ${periodsText}`;
+      } else {
+        document.getElementById("summary").innerText = "วันนี้ยังไม่มีการชาร์จแบตเตอรี่";
       }
+    }
 
-    }).catch(error => {
-      console.error("❌ โหลดข้อมูลล้มเหลว:", error);
-      document.getElementById("summary").innerText = "โหลดข้อมูลล้มเหลว: " + error.message;
+    function fetchAndDisplay() {
+      Promise.all([powerRef.once("value"), batteryRef.once("value")])
+        .then(([powerSnap, battSnap]) => {
+          updateDisplay(powerSnap.val(), battSnap.val());
+        })
+        .catch(err => {
+          document.getElementById("loading").style.display = "none";
+          document.getElementById("summary").style.display = "block";
+          document.getElementById("summary").innerText = "โหลดข้อมูลล้มเหลว: " + err.message;
+        });
+    }
+
+    // โหลดครั้งแรก
+    fetchAndDisplay();
+
+    // อัปเดตอัตโนมัติเมื่อข้อมูลเปลี่ยน
+    powerRef.on("value", powerSnap => {
+      batteryRef.once("value").then(battSnap => {
+        updateDisplay(powerSnap.val(), battSnap.val());
+      });
     });
   };
-</script>
+  </script>
+</body>
+</html>

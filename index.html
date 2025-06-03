@@ -8,10 +8,24 @@
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f4f4f4; }
-    h1 { margin-bottom: 20px; }
-    .chart-container { max-width: 700px; margin: auto; }
-    #summary, #loading { margin-top: 20px; font-size: 18px; font-weight: bold; }
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+      background: #f4f4f4;
+    }
+    h1 {
+      margin-bottom: 20px;
+    }
+    .chart-container {
+      max-width: 700px;
+      margin: auto;
+    }
+    #summary, #loading {
+      margin-top: 20px;
+      font-size: 18px;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -39,16 +53,16 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // สร้าง labels อัตโนมัติ 06:00 - 18:00
     const labels = [];
     for (let h = 6; h <= 18; h++) {
       labels.push(`${h.toString().padStart(2, '0')}:00`);
     }
 
-    // เวลาวันนี้ในเขตเวลาไทย
     const now = new Date();
     now.setHours(now.getHours() + 7);
     const day = now.toISOString().slice(0, 10);
+
+    console.log(`📅 กำลังโหลดข้อมูลของวัน: ${day}`);
 
     const ctx = document.getElementById("powerChart").getContext("2d");
     const chart = new Chart(ctx, {
@@ -145,11 +159,9 @@
       chart.data.datasets[1].data = chargingLine;
       chart.update();
 
-      // ซ่อนข้อความโหลด
       document.getElementById("loading").style.display = "none";
       document.getElementById("summary").style.display = "block";
 
-      // แสดงผลสรุป
       const batteryStatus = battData.status || "-";
       const estimated = battData.estimatedHours || 0;
 
@@ -169,11 +181,29 @@
     }
 
     function fetchAndDisplay() {
+      console.log("🚀 เริ่มโหลดข้อมูลจาก Firebase...");
+
       Promise.all([powerRef.once("value"), batteryRef.once("value")])
         .then(([powerSnap, battSnap]) => {
-          updateDisplay(powerSnap.val(), battSnap.val());
+          const powerData = powerSnap.val();
+          const batteryData = battSnap.val();
+
+          if (!powerData) {
+            console.warn("⚠️ ไม่พบข้อมูล solar_power สำหรับวันนี้");
+          } else {
+            console.log("✅ โหลดข้อมูล solar_power สำเร็จ");
+          }
+
+          if (!batteryData) {
+            console.warn("⚠️ ไม่พบข้อมูล battery_status สำหรับวันนี้");
+          } else {
+            console.log("✅ โหลดข้อมูล battery_status สำเร็จ");
+          }
+
+          updateDisplay(powerData, batteryData);
         })
         .catch(err => {
+          console.error("❌ เกิดข้อผิดพลาดในการโหลดข้อมูล:", err);
           document.getElementById("loading").style.display = "none";
           document.getElementById("summary").style.display = "block";
           document.getElementById("summary").innerText = "โหลดข้อมูลล้มเหลว: " + err.message;
@@ -183,9 +213,10 @@
     // โหลดครั้งแรก
     fetchAndDisplay();
 
-    // อัปเดตอัตโนมัติเมื่อข้อมูลเปลี่ยน
+    // อัปเดตอัตโนมัติเมื่อมีข้อมูลเปลี่ยน
     powerRef.on("value", powerSnap => {
       batteryRef.once("value").then(battSnap => {
+        console.log("📡 มีการเปลี่ยนแปลงข้อมูล power → อัปเดต chart");
         updateDisplay(powerSnap.val(), battSnap.val());
       });
     });

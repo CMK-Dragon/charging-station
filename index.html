@@ -18,7 +18,7 @@
       margin-bottom: 20px;
     }
     .chart-container {
-      max-width: 700px;
+      max-width: 800px;
       margin: auto;
     }
     #summary, #loading {
@@ -53,16 +53,16 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
+    // สร้าง label ราย 30 นาที แต่จะโชว์แค่รายชั่วโมง
     const labels = [];
     for (let h = 6; h <= 18; h++) {
       labels.push(`${h.toString().padStart(2, '0')}:00`);
+      if (h !== 18) labels.push(`${h.toString().padStart(2, '0')}:30`);
     }
 
     const now = new Date();
-    now.setHours(now.getHours() + 7);
+    now.setHours(now.getHours() + 7); // แปลงเป็นเขตเวลาไทย
     const day = now.toISOString().slice(0, 10);
-
-    console.log(`📅 กำลังโหลดข้อมูลของวัน: ${day}`);
 
     const ctx = document.getElementById("powerChart").getContext("2d");
     const chart = new Chart(ctx, {
@@ -97,7 +97,16 @@
             title: { display: true, text: 'W' }
           },
           x: {
-            title: { display: true, text: 'เวลา' }
+            title: { display: true, text: 'เวลา' },
+            ticks: {
+              callback: function(value, index, ticks) {
+                const label = this.getLabelForValue(value);
+                return label.endsWith(":00") ? label : ""; // ซ่อน label ที่ไม่ใช่รายชั่วโมง
+              },
+              autoSkip: false,
+              maxRotation: 0,
+              minRotation: 0
+            }
           }
         }
       }
@@ -116,9 +125,9 @@
         const entry = currentData[time];
         const current = entry && entry.battery_current ? entry.battery_current : 0;
 
-        if (current > 0) {
+        if (current > 0.1) {
           if (periodStart === null) periodStart = time;
-          totalMinutes += 60;
+          totalMinutes += 30;
         } else {
           if (periodStart !== null) {
             chargingPeriods.push({ start: periodStart, end: labels[i - 1] });
@@ -156,6 +165,7 @@
         }
         return null;
       });
+
       chart.data.datasets[1].data = chargingLine;
       chart.update();
 
@@ -181,42 +191,20 @@
     }
 
     function fetchAndDisplay() {
-      console.log("🚀 เริ่มโหลดข้อมูลจาก Firebase...");
-
       Promise.all([powerRef.once("value"), batteryRef.once("value")])
         .then(([powerSnap, battSnap]) => {
-          const powerData = powerSnap.val();
-          const batteryData = battSnap.val();
-
-          if (!powerData) {
-            console.warn("⚠️ ไม่พบข้อมูล solar_power สำหรับวันนี้");
-          } else {
-            console.log("✅ โหลดข้อมูล solar_power สำเร็จ");
-          }
-
-          if (!batteryData) {
-            console.warn("⚠️ ไม่พบข้อมูล battery_status สำหรับวันนี้");
-          } else {
-            console.log("✅ โหลดข้อมูล battery_status สำเร็จ");
-          }
-
-          updateDisplay(powerData, batteryData);
+          updateDisplay(powerSnap.val(), battSnap.val());
         })
         .catch(err => {
-          console.error("❌ เกิดข้อผิดพลาดในการโหลดข้อมูล:", err);
           document.getElementById("loading").style.display = "none";
           document.getElementById("summary").style.display = "block";
           document.getElementById("summary").innerText = "โหลดข้อมูลล้มเหลว: " + err.message;
         });
     }
 
-    // โหลดครั้งแรก
     fetchAndDisplay();
-
-    // อัปเดตอัตโนมัติเมื่อมีข้อมูลเปลี่ยน
     powerRef.on("value", powerSnap => {
       batteryRef.once("value").then(battSnap => {
-        console.log("📡 มีการเปลี่ยนแปลงข้อมูล power → อัปเดต chart");
         updateDisplay(powerSnap.val(), battSnap.val());
       });
     });
